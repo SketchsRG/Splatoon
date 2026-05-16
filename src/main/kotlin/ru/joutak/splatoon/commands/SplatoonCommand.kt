@@ -5,7 +5,9 @@ import org.bukkit.command.CommandExecutor
 import org.bukkit.command.CommandSender
 import org.bukkit.command.TabCompleter
 import org.bukkit.entity.Player
+import org.bukkit.inventory.Inventory
 import ru.joutak.splatoon.SplatoonPlugin
+import ru.joutak.splatoon.config.SplatoonSettings
 import ru.joutak.splatoon.scripts.Game
 import ru.joutak.splatoon.scripts.GameManager
 
@@ -60,6 +62,23 @@ class SplatoonCommand(private val plugin: SplatoonPlugin) : CommandExecutor, Tab
 
         val sub = args[0].lowercase()
         when (sub) {
+            "skin" -> {
+                if (sender !is Player) {
+                    sender.sendMessage("§cТолько для игроков")
+                    return true
+                }
+
+                val skins = SplatoonSettings.skinsInventory
+
+                if (skins == null) {
+                    sender.sendMessage("§cСкины отсутствуют")
+                    return true
+                }
+
+                (sender as Player).openInventory(skins as org.bukkit.inventory.Inventory)
+                return true
+            }
+
             "get" -> {
                 if (sender !is Player) {
                     sender.sendMessage("§cТолько для игроков")
@@ -264,7 +283,7 @@ class SplatoonCommand(private val plugin: SplatoonPlugin) : CommandExecutor, Tab
         args: Array<out String>
     ): MutableList<String> {
         if (args.size == 1) {
-            val base = listOf("help", "get", "games", "spectate", "unspectate", "phase", "skip", "time")
+            val base = listOf("help", "get", "games", "spectate", "unspectate", "phase", "skip", "time", "skin")
             return base.filter { it.startsWith(args[0], ignoreCase = true) }.toMutableList()
         }
 

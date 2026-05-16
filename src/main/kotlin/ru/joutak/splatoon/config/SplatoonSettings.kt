@@ -1,9 +1,19 @@
 package ru.joutak.splatoon.config
 
+import net.kyori.adventure.text.Component
+import net.kyori.adventure.text.format.TextColor
+import org.bukkit.Bukkit
 import org.bukkit.Location
+import org.bukkit.Material
+import org.bukkit.NamespacedKey
 import org.bukkit.configuration.file.YamlConfiguration
+import org.bukkit.inventory.Inventory
+import org.bukkit.inventory.ItemStack
+import org.bukkit.persistence.PersistentDataType
+import ru.joutak.splatoon.SplatoonPlugin
 import java.lang.reflect.AccessFlag
 import java.util.logging.Logger
+import kotlin.math.ceil
 import kotlin.math.max
 
 data class SpawnPoint(
@@ -201,6 +211,33 @@ object SplatoonSettings {
 
     var jumpPadBlockType: String = "LIME_CONCRETE_POWDER"
         private set
+
+    var defaultSkin: Int = 1000
+        private set
+
+    var skinsInventory: Inventory? = null
+        private set
+
+    var skinChanger: Material = Material.EMERALD
+        private set
+
+    val paintableMaterials: Set<Material> = setOf(
+        Material.WHITE_CONCRETE,
+        Material.RED_CONCRETE,
+        Material.YELLOW_CONCRETE,
+        Material.GREEN_CONCRETE,
+        Material.BLUE_CONCRETE,
+        Material.RED_NETHER_BRICK_STAIRS,
+        Material.RESIN_BRICK_STAIRS,
+        Material.MOSSY_COBBLESTONE_STAIRS,
+        Material.OXIDIZED_CUT_COPPER_STAIRS,
+        Material.END_STONE_BRICK_STAIRS,
+        Material.WHITE_CONCRETE_POWDER, // Added for completeness
+        Material.RED_CONCRETE_POWDER,
+        Material.YELLOW_CONCRETE_POWDER,
+        Material.GREEN_CONCRETE_POWDER,
+        Material.BLUE_CONCRETE_POWDER
+    )
 
     val lobbyGunLocations: MutableList<List<Double>> = mutableListOf()
 
@@ -404,6 +441,35 @@ object SplatoonSettings {
         bacillusDurationSeconds = max(0, config.getInt("bacillus.duration_seconds", 5))
         bacillusRangeBlocks = config.getDouble("bacillus.range_blocks", 3.2).coerceAtLeast(0.0)
         bacillusCooldownMs = max(0, config.getLong("bacillus.cooldown_ms", 250))
+
+        defaultSkin = config.getInt("skins.default", 1000)
+        val item = ItemStack(Material.CROSSBOW, 1)
+        val meta = item.itemMeta
+        meta.displayName(Component.text("Сплат-пушка").color(TextColor.color(0xFF55FF)))
+        meta.persistentDataContainer.set(
+            NamespacedKey(SplatoonPlugin.instance, "splatGun"),
+            PersistentDataType.BOOLEAN,
+            true
+        )
+        item.itemMeta = meta
+        val models = config.getList("skins.models") ?: emptyList<Any>()
+        if (models.isNotEmpty()) {
+            val size = (ceil(models.size / 9.0) * 9).toInt().coerceAtLeast(9)
+            @Suppress("DEPRECATION")
+            skinsInventory = Bukkit.createInventory(null, size, "Установить скин")
+            var cell = 0
+            for (any in models) {
+                try {
+                    val id = any.toString().toInt()
+                    val copy = item.clone()
+                    val copyMeta = copy.itemMeta
+                    copyMeta.setCustomModelData(id)
+                    copy.itemMeta = copyMeta
+                    skinsInventory?.setItem(cell, copy)
+                    cell += 1
+                } catch (_: Exception) {}
+            }
+        }
 
 
         sneakOnInkEnabled = config.getBoolean("movement.sneak_on_ink.enabled", true)

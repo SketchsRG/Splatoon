@@ -20,6 +20,8 @@ object AdminItems {
         meta.persistentDataContainer.set(NamespacedKey(plugin, "splatGun"), PersistentDataType.BOOLEAN, true)
         markAdmin(meta.persistentDataContainer, team)
 
+        meta.setCustomModelData(ru.joutak.splatoon.config.SplatoonSettings.defaultSkin)
+
         // Держим арбалет визуально "заряженным" всегда, чтобы моделька не дёргалась.
         (meta as? CrossbowMeta)?.let { crossbow ->
             if (crossbow.chargedProjectiles.isEmpty()) {

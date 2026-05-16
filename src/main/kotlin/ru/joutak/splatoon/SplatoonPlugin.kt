@@ -8,6 +8,7 @@ import ru.joutak.minigames.domain.GameInstanceConfig
 import ru.joutak.minigames.managers.MatchmakingManager
 import ru.joutak.splatoon.commands.SplatoonCommand
 import ru.joutak.splatoon.config.SplatoonSettings
+import ru.joutak.splatoon.lang.Lang
 import ru.joutak.splatoon.listeners.BacillusHitListener
 import ru.joutak.splatoon.listeners.BoostPickupListener
 import ru.joutak.splatoon.listeners.CeremonyMoveListener
@@ -20,6 +21,7 @@ import ru.joutak.splatoon.listeners.PlayerUseListener
 import ru.joutak.splatoon.listeners.ProjectileHitListener
 import ru.joutak.splatoon.listeners.JumpPadListener
 import ru.joutak.splatoon.listeners.LobbyGunPickupListener
+import ru.joutak.splatoon.listeners.SkinGuiListener
 import ru.joutak.splatoon.listeners.SpectatorWorldTeleportGuardListener
 import ru.joutak.splatoon.listeners.SplatGunBowListener
 import ru.joutak.splatoon.listeners.SplatGunProtectionListener
@@ -73,6 +75,7 @@ class SplatoonPlugin : JavaPlugin() {
         instance = this
 
         loadConfig()
+        Lang.load(this)
         MiniGamesCore.initialize(this)
         loadArenas()
 
@@ -93,6 +96,7 @@ class SplatoonPlugin : JavaPlugin() {
         Bukkit.getPluginManager().registerEvents(PlayerMoveOnIceListener(), this)
         Bukkit.getPluginManager().registerEvents(JumpPadListener(), this)
         Bukkit.getPluginManager().registerEvents(LobbyGunPickupListener(), this)
+        Bukkit.getPluginManager().registerEvents(SkinGuiListener(), this)
 
 
         val cmd = getCommand("splatoon")
@@ -113,11 +117,12 @@ class SplatoonPlugin : JavaPlugin() {
                 if (locations.isNotEmpty()) {
                     LobbyGunStand.spawnAll(locations)
                 } else {
-                    logger.info("No gun stand locations configured, skipping spawn")
+                    logger.info(Lang.get("lobby.no_guns"))
                 }
             } else {
-                logger.warning("Lobby world '${SplatoonSettings.lobbyWorldName}' not found! Gun stands not spawned.")
-            }
+                logger.warning(Lang.get("lobby.world_not_found",
+                    "world" to SplatoonSettings.lobbyWorldName
+                ))            }
         }, 20L)
 
         logger.info("Плагин ${pluginMeta.name} версии ${pluginMeta.version} включен!")
@@ -125,7 +130,7 @@ class SplatoonPlugin : JavaPlugin() {
         server.scheduler.runTaskTimer(this, Runnable {
             val instance = MatchmakingManager.pollReady()
             if (instance != null) {
-                logger.info("Команды собрались!")
+                logger.info(Lang.get("match.ready"))
                 GameManager.createGame(instance)
             }
         }, 20L, 20L)

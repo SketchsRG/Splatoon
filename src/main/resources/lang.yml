@@ -1,0 +1,35 @@
+match:
+  ready: "§a✔ Команды готовы!"
+
+lobby:
+  no_guns: "§e⚠ Нет точек для пушек"
+  world_not_found: "§c✖ Мир '%world%' не найден!"
+
+messages:
+  start_instructions:
+    - "&6&lSplatoon &7— закрась арену своим цветом и набери больше %!"
+    - ""
+    - "&f• &eПКМ пушкой &7— выстрел краской (&f%max_hp% ХП&7)"
+    - "&f• &eПКМ бомбочкой &7— взрыв краски"
+    - "&f• &dБацилла &7— ударь игрока (ЛКМ), эффект &e%bacillus_time% сек"
+    - "&f• &aShift на своей краске &7— скрытие и реген ❤"
+
+scoreboard:
+  title: "§6§lSPLATOON"
+
+  lines:
+    separator: "§8§m━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    score_title: "§f§lТЕРРИТОРИЯ"
+    you: "§7Вы: %team%"
+    ammo: "§7Оружие: %team%"
+    contribution: "§f§lВКЛАД"
+
+  team:
+    red: "§cКрасные"
+    yellow: "§eЖёлтые"
+    green: "§aЗелёные"
+    blue: "§9Синие"
+
+  team_line: "%marker%%team% §7» §f%value% §8(%percent%%)"
+  player_line: "§b%player% §7» §f%value% §8(%percent%%) §c✦%kills%"
+

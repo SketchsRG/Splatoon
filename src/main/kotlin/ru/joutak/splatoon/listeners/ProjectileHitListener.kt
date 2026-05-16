@@ -1,18 +1,21 @@
 package ru.joutak.splatoon.listeners
 
+import net.kyori.adventure.text.Component
+import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.Bukkit
+import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.Sound
 import org.bukkit.World
 import org.bukkit.block.Block
+import org.bukkit.block.data.type.Slab
+import org.bukkit.block.data.type.Stairs
+import org.bukkit.block.data.Bisected
 import org.bukkit.entity.EntityType
 import org.bukkit.entity.Player
 import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
 import org.bukkit.event.entity.ProjectileHitEvent
-import net.kyori.adventure.text.Component
-import net.kyori.adventure.text.format.NamedTextColor
-import org.bukkit.Location
 import org.bukkit.potion.PotionEffect
 import org.bukkit.potion.PotionEffectType
 import ru.joutak.splatoon.config.SplatoonSettings
@@ -22,18 +25,92 @@ import java.util.UUID
 import kotlin.math.ceil
 import kotlin.math.floor
 
+enum class BlockType { STAIRS, SLAB, FULL }
+
+data class StairState(val facing: org.bukkit.block.BlockFace, val half: Bisected.Half, val shape: Stairs.Shape, val waterlogged: Boolean)
+data class SlabState(val type: Slab.Type, val waterlogged: Boolean)
+
 class ProjectileHitListener : Listener {
 
     private val ceremonyKey = "ceremonyKey"
-
     private val lastShooterHitMs = mutableMapOf<UUID, Long>()
+
+    private fun getBlockType(block: Block): BlockType {
+        val name = block.type.name
+        return when {
+            name.endsWith("_STAIRS") -> BlockType.STAIRS
+            name.endsWith("_SLAB") -> BlockType.SLAB
+            else -> BlockType.FULL
+        }
+    }
+
+    private fun getTeamMaterial(team: Int, blockType: BlockType): Material {
+        return when(blockType) {
+            BlockType.STAIRS -> when(team) {
+                0 -> Material.RED_NETHER_BRICK_STAIRS
+                1 -> Material.RESIN_BRICK_STAIRS
+                2 -> Material.MOSSY_COBBLESTONE_STAIRS
+                3 -> Material.OXIDIZED_CUT_COPPER_STAIRS
+                else -> Material.END_STONE_BRICK_STAIRS
+            }
+            BlockType.SLAB -> when(team) {
+                0 -> Material.RED_NETHER_BRICK_SLAB
+                1 -> Material.RESIN_BRICK_SLAB
+                2 -> Material.MOSSY_COBBLESTONE_SLAB
+                3 -> Material.OXIDIZED_CUT_COPPER_SLAB
+                else -> Material.END_STONE_BRICK_SLAB
+            }
+            BlockType.FULL -> when(team) {
+                0 -> Material.RED_CONCRETE
+                1 -> Material.YELLOW_CONCRETE
+                2 -> Material.GREEN_CONCRETE
+                3 -> Material.BLUE_CONCRETE
+                else -> Material.WHITE_CONCRETE
+            }
+        }
+    }
+
+    private fun getTeamFromMaterial(material: Material): Int? {
+        return when (material) {
+            Material.RED_CONCRETE, Material.RED_NETHER_BRICK_STAIRS, Material.RED_NETHER_BRICK_SLAB -> 0
+            Material.YELLOW_CONCRETE, Material.RESIN_BRICK_STAIRS, Material.RESIN_BRICK_SLAB -> 1
+            Material.GREEN_CONCRETE, Material.MOSSY_COBBLESTONE_STAIRS, Material.MOSSY_COBBLESTONE_SLAB -> 2
+            Material.BLUE_CONCRETE, Material.OXIDIZED_CUT_COPPER_STAIRS, Material.OXIDIZED_CUT_COPPER_SLAB -> 3
+            else -> null
+        }
+    }
+
+    private fun getStairsState(block: Block): StairState? {
+        val data = block.blockData as? Stairs ?: return null
+        return StairState(data.facing, data.half, data.shape, data.isWaterlogged)
+    }
+
+    private fun applyStairState(block: Block, state: StairState) {
+        val data = block.blockData as? Stairs ?: return
+        data.facing = state.facing
+        data.half = state.half
+        data.shape = state.shape
+        data.isWaterlogged = state.waterlogged
+        block.blockData = data
+    }
+
+    private fun getSlabState(block: Block): SlabState? {
+        val data = block.blockData as? Slab ?: return null
+        return SlabState(data.type, data.isWaterlogged)
+    }
+
+    private fun applySlabState(block: Block, state: SlabState) {
+        val data = block.blockData as? Slab ?: return
+        data.type = state.type
+        data.isWaterlogged = state.waterlogged
+        block.blockData = data
+    }
 
     @EventHandler
     fun projectileHitEvent(event: ProjectileHitEvent) {
         val entity = event.entity
         if (entity.type != EntityType.SNOWBALL) return
 
-        // В церемонии разрешаем просто "пострелять" без покраски и без урона.
         if (entity.hasMetadata(ceremonyKey)) {
             runCatching { entity.passengers.toList().forEach { it.remove() } }
             entity.remove()
@@ -41,7 +118,6 @@ class ProjectileHitListener : Listener {
         }
 
         if (!entity.hasMetadata("paintKey")) return
-
         runCatching { entity.passengers.toList().forEach { it.remove() } }
 
         val shooterUuid = getShooterUuid(entity.getMetadata("shooterId").firstOrNull()?.asString())
@@ -49,7 +125,6 @@ class ProjectileHitListener : Listener {
         if (shooter == null) return
 
         val isInLobby = GameManager.isLobbyWorld(shooter.world)
-
         if (isInLobby) {
             val hitBlock = event.hitBlock
             val hitFace = event.hitBlockFace
@@ -57,36 +132,10 @@ class ProjectileHitListener : Listener {
             if (hitBlock != null && hitFace != null) {
                 val paintTeam = entity.getMetadata("paintTeam").firstOrNull()?.asInt() ?: return
                 val radius = SplatoonSettings.gunPaintInLobbyRadius
-                if (radius >= 0.6){
-                    val center = hitBlock.getRelative(hitFace).location
-                    safePaintInRadius(center, entity.world, radius, paintTeam)
-                    entity.world.playSound(center, Sound.ENTITY_SLIME_SQUISH_SMALL, 0.7f, 1.55f)
-                } else{
-                    val targetBlock = hitBlock
-
-                    val newMat = when (paintTeam) {
-                        0 -> Material.RED_CONCRETE
-                        1 -> Material.YELLOW_CONCRETE
-                        2 -> Material.GREEN_CONCRETE
-                        3 -> Material.BLUE_CONCRETE
-                        -1 -> Material.WHITE_CONCRETE
-                        else -> Material.WHITE_CONCRETE
-                    }
-
-                    val paintable = setOf(
-                        Material.WHITE_CONCRETE,
-                        Material.RED_CONCRETE,
-                        Material.YELLOW_CONCRETE,
-                        Material.GREEN_CONCRETE,
-                        Material.BLUE_CONCRETE
-                    )
-
-                    if (paintable.contains(targetBlock.type) && targetBlock.type != newMat) {
-                        targetBlock.type = newMat
-                        entity.world.playSound(targetBlock.location, Sound.ENTITY_SLIME_SQUISH_SMALL, 0.7f, 1.55f)
-                    }
-                }
-
+                val center = hitBlock.getRelative(hitFace).location
+                
+                safePaintInRadius(center, entity.world, radius, paintTeam)
+                entity.world.playSound(center, Sound.ENTITY_SLIME_SQUISH_SMALL, 0.7f, 1.55f)
             }
             entity.remove()
             return
@@ -98,7 +147,6 @@ class ProjectileHitListener : Listener {
         val paintTeam = entity.getMetadata("paintTeam").firstOrNull()?.asInt() ?: shooterTeam
         val isBomb = entity.hasMetadata("bombKey")
         val radius = if (isBomb) SplatoonSettings.bombPaintRadius else SplatoonSettings.gunPaintRadius
-        // On kill we do an extra burst. For bombs it should feel like the player "exploded" into paint.
         val killPaintRadius = if (isBomb) radius + 1.5 else SplatoonSettings.gunKillPaintRadius
         val damagePerHit = if (isBomb) SplatoonSettings.inkMaxHp else 1
 
@@ -120,7 +168,6 @@ class ProjectileHitListener : Listener {
                 return
             }
 
-            // Impact sound for nearby players.
             if (isBomb) {
                 victim.world.playSound(victim.location, Sound.ENTITY_GENERIC_EXPLODE, 1.8f, 1.0f)
                 victim.world.playSound(victim.location, Sound.ENTITY_SLIME_SQUISH_SMALL, 1.0f, 0.8f)
@@ -139,8 +186,6 @@ class ProjectileHitListener : Listener {
             if (shooterTeam == victimTeam) return
 
             val hpLeft = game.damageInkHp(victim.uniqueId, damagePerHit)
-
-            // Hit markers (sound + tiny actionbar) for both sides.
             playHitMarker(shooter, victim, hpLeft, game)
 
             if (hpLeft <= 0) {
@@ -157,13 +202,11 @@ class ProjectileHitListener : Listener {
         val center = hitBlock.getRelative(hitFace).location
 
         if (!isBomb) {
-            // Splat on blocks should be audible to anyone nearby.
             entity.world.playSound(center, Sound.ENTITY_SLIME_SQUISH_SMALL, 0.7f, 1.55f)
             explosivePaint(radius, center, entity.world, game, shooter.uniqueId, paintTeam, null)
             return
         }
 
-        // Bomb explosion sound for everyone nearby.
         entity.world.playSound(center, Sound.ENTITY_GENERIC_EXPLODE, 2.1f, 1.0f)
         entity.world.playSound(center, Sound.ENTITY_SLIME_SQUISH_SMALL, 1.2f, 0.75f)
 
@@ -186,8 +229,6 @@ class ProjectileHitListener : Listener {
             if (shooterTeam == victimTeam) return@forEach
 
             val hpLeft = game.damageInkHp(victim.uniqueId, damagePerHit)
-
-            // Bomb AOE: mark hits too (throttled for shooter).
             playHitMarker(shooter, victim, hpLeft, game)
 
             if (hpLeft <= 0) {
@@ -196,11 +237,10 @@ class ProjectileHitListener : Listener {
                 splatAndRespawn(victim, game)
                 explosivePaint(killPaintRadius, deathLoc, entity.world, game, shooter.uniqueId, paintTeam, null)
             }
-	        }
+        }
     }
 
     private fun playHitMarker(shooter: Player, victim: Player, victimHpLeft: Int, game: Game) {
-        // Shooter: short "hitmarker" sound. Throttle so bombs don't spam the ear.
         val now = System.currentTimeMillis()
         val last = lastShooterHitMs[shooter.uniqueId] ?: 0L
         if (now - last >= 120L) {
@@ -214,7 +254,6 @@ class ProjectileHitListener : Listener {
             )
         }
 
-        // Victim: hurt confirmation (since we cancel vanilla damage, MC won't always play it).
         victim.playSound(victim.location, Sound.ENTITY_PLAYER_HURT, 0.6f, 1.1f)
         game.pushActionBarOverlay(
             victim.uniqueId,
@@ -222,7 +261,6 @@ class ProjectileHitListener : Listener {
                 .append(Component.text("(${victimHpLeft}/${SplatoonSettings.inkMaxHp})", NamedTextColor.GRAY))
         )
 
-        // Keep the HP bar synced immediately.
         game.syncHealthBar(victim)
     }
 
@@ -280,30 +318,33 @@ class ProjectileHitListener : Listener {
             }
         }
 
-        val paintable = setOf(
-            Material.WHITE_CONCRETE,
-            Material.RED_CONCRETE,
-            Material.YELLOW_CONCRETE,
-            Material.GREEN_CONCRETE,
-            Material.BLUE_CONCRETE
-        )
-
-        val matToTeam = mutableMapOf<Material, Int>()
-        game.commandColors.forEach { (team, mat) -> matToTeam[mat] = team }
-
-        val newMat = game.commandColors[paintTeam] ?: Material.WHITE_CONCRETE
+        val paintable = SplatoonSettings.paintableMaterials
 
         for (b in blocks) {
             if (exclude != null && b.x == exclude.x && b.y == exclude.y && b.z == exclude.z) continue
             if (!paintable.contains(b.type)) continue
+            
+            val blockType = getBlockType(b)
+            val newMat = getTeamMaterial(paintTeam, blockType)
             if (b.type == newMat) continue
 
-            val oldTeam = matToTeam[b.type]
+            val oldState: Any? = when(blockType) {
+                BlockType.STAIRS -> getStairsState(b)
+                BlockType.SLAB -> getSlabState(b)
+                BlockType.FULL -> null
+            }
+
+            val oldTeam = getTeamFromMaterial(b.type)
             if (oldTeam != null) {
                 game.paintedCommand[oldTeam] = (game.paintedCommand[oldTeam] ?: 0) - 1
             }
 
             b.type = newMat
+
+            when(oldState) {
+                is StairState -> applyStairState(b, oldState)
+                is SlabState -> applySlabState(b, oldState)
+            }
 
             val shooterBaseTeam = game.commands[shooterId]
             if (shooterBaseTeam != null) {
@@ -333,19 +374,25 @@ class ProjectileHitListener : Listener {
         radius: Double,
         paintTeam: Int,
     ) {
-        val newMat = getTeamMaterial(paintTeam)
-        val paintable = setOf(
-            Material.WHITE_CONCRETE,
-            Material.RED_CONCRETE,
-            Material.YELLOW_CONCRETE,
-            Material.GREEN_CONCRETE,
-            Material.BLUE_CONCRETE
-        )
+        val paintable = SplatoonSettings.paintableMaterials
 
-        if (radius <= 0.6){
+        if (radius <= 0.6) {
             val block = center.block
-            if (paintable.contains(block.type) && block.type != newMat) {
-                block.type = newMat
+            if (paintable.contains(block.type)) {
+                val blockType = getBlockType(block)
+                val newMat = getTeamMaterial(paintTeam, blockType)
+                if (block.type != newMat) {
+                    val oldState: Any? = when(blockType) {
+                        BlockType.STAIRS -> getStairsState(block)
+                        BlockType.SLAB -> getSlabState(block)
+                        BlockType.FULL -> null
+                    }
+                    block.type = newMat
+                    when(oldState) {
+                        is StairState -> applyStairState(block, oldState)
+                        is SlabState -> applySlabState(block, oldState)
+                    }
+                }
             }
             return
         }
@@ -354,21 +401,24 @@ class ProjectileHitListener : Listener {
             for (y in roundFromZero(center.y - radius)..roundFromZero(center.y + radius)) {
                 for (z in roundFromZero(center.z - radius)..roundFromZero(center.z + radius)) {
                     val block = world.getBlockAt(x, y, z)
-                    if (paintable.contains(block.type) && block.type != newMat) {
-                        block.type = newMat
+                    if (paintable.contains(block.type)) {
+                        val blockType = getBlockType(block)
+                        val newMat = getTeamMaterial(paintTeam, blockType)
+                        if (block.type != newMat) {
+                            val oldState: Any? = when(blockType) {
+                                BlockType.STAIRS -> getStairsState(block)
+                                BlockType.SLAB -> getSlabState(block)
+                                BlockType.FULL -> null
+                            }
+                            block.type = newMat
+                            when(oldState) {
+                                is StairState -> applyStairState(block, oldState)
+                                is SlabState -> applySlabState(block, oldState)
+                            }
+                        }
                     }
                 }
             }
-        }
-    }
-
-    private fun getTeamMaterial(team: Int): Material {
-        return when (team) {
-            0 -> Material.RED_CONCRETE
-            1 -> Material.YELLOW_CONCRETE
-            2 -> Material.GREEN_CONCRETE
-            3 -> Material.BLUE_CONCRETE
-            else -> Material.WHITE_CONCRETE
         }
     }
 }

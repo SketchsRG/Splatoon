@@ -51,6 +51,8 @@ import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.roundToInt
 import kotlin.random.Random
+import io.papermc.paper.scoreboard.numbers.NumberFormat
+import ru.joutak.splatoon.lang.Lang
 
 class Game(var worldName: String, val arenaId: String, private val spawns: List<SpawnPoint>) {
 
@@ -110,10 +112,10 @@ class Game(var worldName: String, val arenaId: String, private val spawns: List<
 
     fun getSpectatorExpectedWorldName(): String = ceremonyWorldName ?: worldName
 
-    
+
     private var countdownLeft: Int? = null
 
-    
+
     private var cleanupStarted: Boolean = false
 
     private var timeLeft = 0
@@ -444,10 +446,10 @@ class Game(var worldName: String, val arenaId: String, private val spawns: List<
 
 
     private fun finishCleanupNow(force: Boolean) {
-            // Always restore/teleport spectators before any world cleanup happens.
-            forceRemoveAllSpectators(forceLobby = true)
+        // Always restore/teleport spectators before any world cleanup happens.
+        forceRemoveAllSpectators(forceLobby = true)
 
-            if (cleanupStarted) return
+        if (cleanupStarted) return
         cleanupStarted = true
 
         endingCleanupTask?.cancel(); endingCleanupTask = null
@@ -753,6 +755,7 @@ class Game(var worldName: String, val arenaId: String, private val spawns: List<
                 runCatching { crossbow.addChargedProjectile(ItemStack(Material.ARROW, 1)) }
             }
         }
+        gunMeta.setCustomModelData(GameManager.getSkin(player.uniqueId))
         gun.itemMeta = gunMeta
 
         // Bomb
@@ -912,15 +915,12 @@ class Game(var worldName: String, val arenaId: String, private val spawns: List<
     private fun sendStartInstructions() {
         commands.keys.forEach { id ->
             val p = Bukkit.getPlayer(id) ?: return@forEach
-            p.sendMessage(Component.text("§6§lSplatoon §7— закрась арену своим цветом и набери больше %!"))
-            p.sendMessage(Component.text("§f• §eПКМ пушкой §7— выстрел краской (Противников можно взорвать, у вас ${maxInkHp} ХП"))
-            p.sendMessage(Component.text("§f• §eПКМ бомбочкой §7— взрыв краски"))
-            p.sendMessage(
-                Component.text(
-                    "§f• §dБацилла §7 — §eударь игрока (ЛКМ), и он будет стрелять твоим цветом ${SplatoonSettings.bacillusDurationSeconds} секунд"
-                )
-            )
-            p.sendMessage(Component.text("§f• §aУдерживая shift на своей краске §7вы скрываетесь и лечитесь ❤"))
+
+            Lang.componentList(
+                "messages.start_instructions",
+                "max_hp" to maxInkHp.toString(),
+                "bacillus_time" to SplatoonSettings.bacillusDurationSeconds.toString()
+            ).forEach { p.sendMessage(it) }
         }
     }
 
@@ -1022,6 +1022,21 @@ class Game(var worldName: String, val arenaId: String, private val spawns: List<
             hasAny = true
         }
 
+        val ammoTeam = getAmmoTeam(player.uniqueId)
+        if (ammoTeam != null) {
+            val ammoColor = when (ammoTeam) {
+                0 -> NamedTextColor.RED
+                1 -> NamedTextColor.YELLOW
+                2 -> NamedTextColor.GREEN
+                3 -> NamedTextColor.BLUE
+                else -> NamedTextColor.WHITE
+            }
+            if (hasAny) c = c.append(Component.text("  |  ", NamedTextColor.GRAY))
+            c = c.append(Component.text("Оружие: ", NamedTextColor.WHITE))
+                 .append(Component.text("■■■■■", ammoColor))
+            hasAny = true
+        }
+
         val now = System.currentTimeMillis()
         val overlayUntil = actionBarOverlayUntilMs[player.uniqueId] ?: 0L
         val overlay = if (overlayUntil > now) actionBarOverlayText[player.uniqueId] else null
@@ -1077,7 +1092,11 @@ class Game(var worldName: String, val arenaId: String, private val spawns: List<
 
         commands.keys.forEach { uuid ->
             val p = Bukkit.getPlayer(uuid) ?: return@forEach
-            p.inventory.addItem(item.clone())
+            val playerItem = item.clone()
+            val pMeta = playerItem.itemMeta
+            pMeta.setCustomModelData(GameManager.getSkin(uuid))
+            playerItem.itemMeta = pMeta
+            p.inventory.addItem(playerItem)
         }
     }
 
@@ -1207,7 +1226,9 @@ class Game(var worldName: String, val arenaId: String, private val spawns: List<
     }
 
     private fun makeBoost(name: String, w: World, loc: Location): ItemDisplay? {
-        val display: ItemDisplay = w.spawn(loc, ItemDisplay::class.java)
+        val display: ItemDisplay = w.spawn(loc, ItemDisplay::class.java) { display ->
+            display.isGlowing = true
+        }
 
         when (name) {
             "bomb" -> {
@@ -1377,7 +1398,7 @@ class Game(var worldName: String, val arenaId: String, private val spawns: List<
         if (moved) return false
 
         val origin = spawnProtectedOrigin[uuid] ?: return false
-        val cur = player.location.toVector()
+        val cur = player.location
         if (hasMoved(cur, origin)) {
             spawnProtectionMoved[uuid] = true
             clearSpawnProtection(uuid, player)
@@ -1394,7 +1415,7 @@ class Game(var worldName: String, val arenaId: String, private val spawns: List<
         val moved = spawnProtectionMoved[uuid] ?: return
         if (moved) return
 
-        val cur = player.location.toVector()
+        val cur = player.location
         if (hasMoved(cur, origin)) {
             spawnProtectionMoved[uuid] = true
             if (System.currentTimeMillis() >= until) {
@@ -1412,7 +1433,7 @@ class Game(var worldName: String, val arenaId: String, private val spawns: List<
         val now = System.currentTimeMillis()
 
         if (!moved) {
-            val cur = player.location.toVector()
+            val cur = player.location
             if (hasMoved(cur, origin)) {
                 spawnProtectionMoved[uuid] = true
                 if (now >= until) {
@@ -1427,7 +1448,7 @@ class Game(var worldName: String, val arenaId: String, private val spawns: List<
         }
     }
 
-    private fun hasMoved(cur: Vector, origin: Vector): Boolean {
+    private fun hasMoved(cur: Location, origin: Vector): Boolean {
         // Не считаем мелкие сдвиги (толкания/погрешности позиции) как "движение со спавна".
         // Сбрасываем спавн-протекшн только когда игрок реально вышел из исходного блока.
         if (cur.blockX != origin.blockX || cur.blockZ != origin.blockZ) return true
@@ -1439,7 +1460,7 @@ class Game(var worldName: String, val arenaId: String, private val spawns: List<
 
         val loc = pickSpawnLocation(w, player.uniqueId)
 
-        player.teleport(loc)
+        player.teleportAsync(loc)
     }
 
     private fun pickSpawnLocation(world: World, uuid: UUID): org.bukkit.Location {
@@ -1581,12 +1602,17 @@ class Game(var worldName: String, val arenaId: String, private val spawns: List<
 
         // Give the same scoreboard UI as players (without "Вы"/"ВКЛАД" details).
         val sb = Bukkit.getScoreboardManager().newScoreboard
+
+        sb.getObjective("gametimer")?.unregister()
+
         val obj = sb.registerNewObjective(
             "gametimer",
             Criteria.DUMMY,
-            Component.text("Splatoon", NamedTextColor.GOLD)
+            Lang.component("scoreboard.title")
         )
         obj.displaySlot = DisplaySlot.SIDEBAR
+        obj.numberFormat(NumberFormat.blank())
+
         player.scoreboard = sb
         playerScoreboards[uuid] = sb
         playerObjectives[uuid] = obj
@@ -1769,40 +1795,97 @@ class Game(var worldName: String, val arenaId: String, private val spawns: List<
     private fun createPlayerScoreboards() {
         commands.keys.forEach { uuid ->
             val player = Bukkit.getPlayer(uuid) ?: return@forEach
+
             val sb = Bukkit.getScoreboardManager().newScoreboard
+
+            sb.getObjective("gametimer")?.unregister()
+
             val obj = sb.registerNewObjective(
                 "gametimer",
                 Criteria.DUMMY,
                 Component.text("Splatoon", NamedTextColor.GOLD)
             )
+
             obj.displaySlot = DisplaySlot.SIDEBAR
+
+
+            obj.numberFormat(NumberFormat.blank())
+
             player.scoreboard = sb
+
             playerScoreboards[uuid] = sb
             playerObjectives[uuid] = obj
         }
+
         updateAllPlayerScoreboards()
     }
 
     private fun updateSpawnNameTags() {
-        val protectedNames = mutableSetOf<String>()
+        val protectedPlayersByTeam = mutableMapOf<Int, MutableSet<String>>()
+        for (i in 0..3) protectedPlayersByTeam[i] = mutableSetOf()
+
         commands.keys.forEach { uuid ->
             val p = Bukkit.getPlayer(uuid) ?: return@forEach
-            if (isSpawnSafe(p)) protectedNames.add(p.name)
+            if (isSpawnSafe(p)) {
+                val teamId = commands[uuid] ?: return@forEach
+                protectedPlayersByTeam[teamId]?.add(p.name)
+            }
         }
 
         playerScoreboards.keys.forEach { viewerUuid ->
             val sb = playerScoreboards[viewerUuid] ?: return@forEach
-            val team = sb.getTeam("sp_spawn") ?: sb.registerNewTeam("sp_spawn").apply {
-                setPrefix("§aSPAWN §r")
-                setOption(Team.Option.NAME_TAG_VISIBILITY, Team.OptionStatus.ALWAYS)
-            }
+            
+            for (teamId in 0..3) {
+                val teamName = "sp_spawn_$teamId"
+                val sbTeam = sb.getTeam(teamName) ?: sb.registerNewTeam(teamName).apply {
+                    val teamColor = when (teamId) {
+                        0 -> NamedTextColor.RED
+                        1 -> NamedTextColor.YELLOW
+                        2 -> NamedTextColor.GREEN
+                        3 -> NamedTextColor.BLUE
+                        else -> NamedTextColor.WHITE
+                    }
+                    color(teamColor)
+                    setPrefix("§aSPAWN §r")
+                    setOption(Team.Option.NAME_TAG_VISIBILITY, Team.OptionStatus.ALWAYS)
+                }
 
-            val toRemove = team.entries.filter { it !in protectedNames }
-            toRemove.forEach { team.removeEntry(it) }
+                val protectedNames = protectedPlayersByTeam[teamId] ?: emptySet()
+                
+                val toRemove = sbTeam.entries.filter { it !in protectedNames }
+                toRemove.forEach { sbTeam.removeEntry(it) }
 
-            protectedNames.forEach { name ->
-                if (!team.hasEntry(name)) team.addEntry(name)
+                protectedNames.forEach { name ->
+                    if (!sbTeam.hasEntry(name)) sbTeam.addEntry(name)
+                }
             }
+            
+            sb.getTeam("sp_spawn")?.unregister()
+        }
+    }
+    private fun unique(text: String, index: Int): String {
+        return text + "§r".repeat(index)
+    }
+
+
+    private fun setScoreboardLine(sb: Scoreboard, obj: Objective, score: Int, text: String) {
+        val entryName = "§" + "0123456789abcdef"[score % 16] + "§" + "0123456789abcdef"[(score / 16) % 16] + "§r"
+        var team = sb.getTeam("line_$score")
+        if (team == null) {
+            team = sb.registerNewTeam("line_$score")
+            team.addEntry(entryName)
+            obj.getScore(entryName).score = score
+        }
+        val comp = LegacyComponentSerializer.legacySection().deserialize(text)
+        team.prefix(comp)
+    }
+
+    private fun removeScoreboardLine(sb: Scoreboard, obj: Objective, score: Int) {
+        val entryName = "§" + "0123456789abcdef"[score % 16] + "§" + "0123456789abcdef"[(score / 16) % 16] + "§r"
+        val team = sb.getTeam("line_$score")
+        if (team != null) {
+            sb.resetScores(entryName)
+            team.unregister()
         }
     }
 
@@ -1815,6 +1898,17 @@ class Game(var worldName: String, val arenaId: String, private val spawns: List<
             activeTeams.sumOf { paintedCommand[it] ?: 0 }
         }
 
+        val teamTotals = mutableMapOf<Int, Int>()
+        val teamSortedPlayers = mutableMapOf<Int, List<Pair<UUID, Int>>>()
+
+        activeTeams.forEach { team ->
+            val teamPlayers = commands.entries.filter { it.value == team }.map { it.key }
+            teamTotals[team] = teamPlayers.sumOf { (paintedPerson[it] ?: 0).coerceAtLeast(0) }
+            teamSortedPlayers[team] = teamPlayers
+                .map { it to (paintedPerson[it] ?: 0) }
+                .sortedByDescending { it.second }
+        }
+
         val viewers = playerObjectives.keys.toList()
         viewers.forEach { uuid ->
             val sb = playerScoreboards[uuid] ?: return@forEach
@@ -1822,57 +1916,60 @@ class Game(var worldName: String, val arenaId: String, private val spawns: List<
 
             val viewerTeam = commands[uuid]
 
-            sb.entries.forEach { entry -> sb.resetScores(entry) }
-
             var score = 15
-            obj.getScore("§6▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬").score = score
+            setScoreboardLine(sb, obj, score, unique(Lang.get("scoreboard.lines.separator"), score))
             score--
 
-            obj.getScore("§f§lСЧЕТ:").score = score
+            setScoreboardLine(sb, obj, score, Lang.get("scoreboard.lines.score_title"))
             score--
 
             activeTeams.forEach { team ->
                 if (score <= 0) return@forEach
-                obj.getScore(formatTeamLine(team, totalForPercent, viewerTeam)).score = score
+                setScoreboardLine(sb, obj, score, formatTeamLine(team, totalForPercent, viewerTeam))
                 score--
             }
 
             if (score <= 0) return@forEach
-            obj.getScore(" ").score = score
+            setScoreboardLine(sb, obj, score, " ")
             score--
+            
             val team = viewerTeam
             if (score <= 0) return@forEach
-            obj.getScore("§f§lВы: §f${teamLabel(team)}").score = score
+            setScoreboardLine(sb, obj, score, Lang.get("scoreboard.lines.you", "team" to teamLabel(team)))
             score--
 
             if (score <= 0) return@forEach
-            obj.getScore(formatAmmoLine(uuid)).score = score
+            setScoreboardLine(sb, obj, score, Lang.get("scoreboard.lines.ammo", "team" to teamLabel(getAmmoTeam(uuid))))
             score--
 
             if (score <= 0) return@forEach
-            obj.getScore("  ").score = score
+            setScoreboardLine(sb, obj, score, "  ")
             score--
 
             if (score <= 0) return@forEach
-            obj.getScore("§f§lВКЛАД:").score = score
+            setScoreboardLine(sb, obj, score, "§f§lВКЛАД:")
             score--
 
             if (team != null) {
-                val teamPlayers = commands.entries.filter { it.value == team }.map { it.key }
-                val teamTotal = teamPlayers.sumOf { (paintedPerson[it] ?: 0).coerceAtLeast(0) }
-
-                val sorted = teamPlayers
-                    .map { it to (paintedPerson[it] ?: 0) }
-                    .sortedByDescending { it.second }
+                val teamTotal = teamTotals[team] ?: 0
+                val sorted = teamSortedPlayers[team] ?: emptyList()
 
                 sorted.forEach { (pid, value) ->
                     if (score <= 0) return@forEach
-                    obj.getScore(formatPlayerContributionLine(pid, value, teamTotal)).score = score
+                    setScoreboardLine(sb, obj, score, formatPlayerContributionLine(pid, value, teamTotal))
                     score--
                 }
             }
 
-            obj.getScore("§6▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬§6").score = 0
+            if (score > 0) {
+                setScoreboardLine(sb, obj, score, unique(Lang.get("scoreboard.lines.separator"), 0))
+                score--
+            }
+
+            while (score > 0) {
+                removeScoreboardLine(sb, obj, score)
+                score--
+            }
         }
     }
 
@@ -1892,25 +1989,42 @@ class Game(var worldName: String, val arenaId: String, private val spawns: List<
         val prefix = if (ammoTeam != null && baseTeam != null && ammoTeam != baseTeam) "§d" else "§f"
         return "${prefix}Патроны: §f${teamLabel(ammoTeam)}"
     }
-    private fun formatTeamLine(team: Int, totalPaintable: Int, viewerTeam: Int?): String {
+    private fun formatTeamLine(team: Int, total: Int, viewerTeam: Int?): String {
         val value = paintedCommand[team] ?: 0
-        val percent = if (totalPaintable <= 0) 0 else ((value.toDouble() * 100.0) / totalPaintable.toDouble()).roundToInt()
-        val marker = if (viewerTeam != null && viewerTeam == team) "\u00A76\u25B6 " else ""
-        return when (team) {
-            0 -> "${marker}\u00A7cКрасная: \u00A7f$value \u00A77(${percent}%)"
-            1 -> "${marker}\u00A7eЖелтая: \u00A7f$value \u00A77(${percent}%)"
-            2 -> "${marker}\u00A7aЗеленая: \u00A7f$value \u00A77(${percent}%)"
-            3 -> "${marker}\u00A79Синяя: \u00A7f$value \u00A77(${percent}%)"
-            else -> "${marker}\u00A7fКоманда: \u00A7f$value \u00A77(${percent}%)"
+        val percent = if (total <= 0) 0 else ((value * 100.0) / total).roundToInt()
+
+        val marker = if (viewerTeam == team) "§6▶ " else ""
+
+        val teamKey = when (team) {
+            0 -> "red"
+            1 -> "yellow"
+            2 -> "green"
+            3 -> "blue"
+            else -> "red"
         }
+
+        return Lang.get(
+            "scoreboard.team_line",
+            "marker" to marker,
+            "team" to Lang.get("scoreboard.team.$teamKey"),
+            "value" to value.toString(),
+            "percent" to percent.toString(),
+            "color" to ""
+        )
     }
 
     private fun formatPlayerContributionLine(uuid: UUID, value: Int, teamTotal: Int): String {
-        val nameRaw = Bukkit.getOfflinePlayer(uuid).name ?: "Player"
-        val name = if (nameRaw.length > 10) nameRaw.substring(0, 10) else nameRaw
-        val percent = if (teamTotal <= 0) 0 else (((value.coerceAtLeast(0)).toDouble() * 100.0) / teamTotal.toDouble()).roundToInt()
+        val name = Bukkit.getOfflinePlayer(uuid).name ?: "Player"
+        val percent = if (teamTotal <= 0) 0 else ((value * 100.0) / teamTotal).roundToInt()
         val k = kills[uuid] ?: 0
-        return "§b$name: §f$value §7(${percent}%) §c✦$k"
+
+        return Lang.get(
+            "scoreboard.player_line",
+            "player" to name.take(10),
+            "value" to value.toString(),
+            "percent" to percent.toString(),
+            "kills" to k.toString()
+        )
     }
 
     private fun ensureInkHealth(player: Player) {

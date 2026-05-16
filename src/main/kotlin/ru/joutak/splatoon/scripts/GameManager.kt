@@ -37,6 +37,16 @@ object GameManager {
 
     private val playerSelectedTeam = mutableMapOf<UUID, Int>()
 
+    private val playerSkin = mutableMapOf<UUID, Int>()
+
+    fun setSkin(uuid: UUID, id: Int) {
+        playerSkin[uuid] = id
+    }
+
+    fun getSkin(uuid: UUID): Int {
+        return playerSkin[uuid] ?: SplatoonSettings.defaultSkin
+    }
+
     fun registerTemplateWorld(worldName: String) {
         templateWorlds.add(worldName)
     }
